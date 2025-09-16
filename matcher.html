@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Column Mapping Tool - Demo</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f7f9;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #2c3e50;
+        }
+        
+        .tables-container {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+        
+        .table-section {
+            flex: 1;
+            min-width: 300px;
+            border: 2px solid #e1e8ed;
+            padding: 20px;
+            border-radius: 8px;
+            background: white;
+        }
+        
+        .table-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            margin: -20px -20px 20px;
+            border-radius: 6px 6px 0 0;
+        }
+        
+        .table-header h3 {
+            margin: 0;
+            font-size: 18px;
+        }
+        
+        select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-top: 5px;
+        }
+        
+        .column-list {
+            min-height: 400px;
+            max-height: 500px;
+            overflow-y: auto;
+            padding: 10px;
+            background: #fafbfc;
+            border-radius: 4px;
+        }
+        
+        .column-item {
+            padding: 12px;
+            margin: 8px 0;
+            border: 1px solid #e1e8ed;
+            cursor: move;
+            background: white;
+            border-radius: 6px;
+            transition: all 0.3s ease;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .column-item:hover {
+            background: #e3f2fd;
+            border-color: #2196f3;
+            transform: translateY(-2px);
+            box-shadow: 0 2px 5px rgba(0,0,0,0.15);
+        }
+        
+        .column-item strong {
+            color: #2c3e50;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .column-desc {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.4;
+        }
+        
+        .mapping-area {
+            min-height: 200px;
+            border: 3px dashed #bdc3c7;
+            padding: 25px;
+            margin: 30px 0;
+            border-radius: 8px;
+            background: #ecf0f1;
+            text-align: center;
+        }
+        
+        .mapping-area.drag-over {
+            background: #d6eaf8;
+            border-color: #3498db;
+        }
+        
+        .mapping-pair {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin: 15px 0;
+            padding: 15px;
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-radius: 8px;
+            border: 1px solid #90caf9;
+        }
+        
+        .mapping-source, .mapping-target {
+            flex: 1;
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        
+        .mapping-arrow {
+            font-size: 20px;
+            color: #7d3c98;
+            font-weight: bold;
+        }
+        
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #27ae60 0%, #229954 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #229954 0%, #1e8449 100%);
+            transform: translateY(-2px);
+        }
+        
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+            padding: 8px 15px;
+            font-size: 14px;
+        }
+        
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+        
+        .session-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 1px solid #e9ecef;
+        }
+        
+        .session-info input, .session-info textarea {
+            width: 100%;
+            padding: 10px;
+            margin: 8px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .existing-mappings {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+        
+        .mapping-item {
+            padding: 15px;
+            margin: 10px 0;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #e1e8ed;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        
+        .stat-card {
+            flex: 1;
+            min-width: 200px;
+            padding: 20px;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e1e8ed;
+            text-align: center;
+        }
+        
+        .stat-number {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .stat-label {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Cross-Schema Column Mapping Tool</h1>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number">4</div>
+                <div class="stat-label">Source Tables</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">12</div>
+                <div class="stat-label">Columns Loaded</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number" id="mapping-count">0</div>
+                <div class="stat-label">Current Mappings</div>
+            </div>
+        </div>
+        
+        <div class="tables-container">
+            <!-- Source Table -->
+            <div class="table-section">
+                <div class="table-header">
+                    <h3>📁 Source Table</h3>
+                </div>
+                <select id="source-table-select">
+                    <option value="customers">Customers Table</option>
+                    <option value="orders">Orders Table</option>
+                    <option value="products">Products Table</option>
+                    <option value="employees">Employees Table</option>
+                </select>
+                <div class="column-list" id="source-columns">
+                    <!-- Columns will be populated here -->
+                </div>
+            </div>
+
+            <!-- Target Tables -->
+            <div class="table-section">
+                <div class="table-header">
+                    <h3>🎯 Target Tables</h3>
+                </div>
+                <button class="btn" onclick="addTargetTable()" style="margin-bottom: 15px; background: #3498db; color: white;">+ Add Target Table</button>
+                <div id="target-table-container">
+                    <!-- Target tables will be added here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Mapping Area -->
+        <div class="mapping-area" id="mapping-area" ondrop="dropHandler(event)" ondragover="dragOverHandler(event)" ondragleave="dragLeaveHandler(event)">
+            <h3>✨ Drag columns here to create mappings</h3>
+            <p>Drop source columns on the left and target columns on the right</p>
+            <div id="mapping-pairs"></div>
+        </div>
+
+        <!-- Session Info -->
+        <div class="session-info">
+            <h3>💾 Mapping Session</h3>
+            <input type="text" id="session-name" placeholder="Session Name (e.g., Customer Data Integration)">
+            <textarea id="session-description" placeholder="Session Description (e.g., Mapping customer data across sales and marketing systems)" rows="3"></textarea>
+        </div>
+
+        <button class="btn btn-primary" onclick="saveMappings()">💾 Save All Mappings</button>
+
+        <!-- Existing Mappings -->
+        <div class="existing-mappings">
+            <h3>📋 Existing Mappings</h3>
+            <div id="existing-mappings">
+                <!-- Existing mappings will be shown here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Hardcoded sample data
+        const sampleData = {
+            customers: [
+                {
+                    column_name: 'customer_id',
+                    business_purpose: 'Unique identifier for each customer in the system',
+                    data_quality_rules: 'Must be unique, not null, numeric values only',
+                    example_usage: 'Joining customer data with orders table',
+                    issues: 'Some legacy IDs may not follow current format'
+                },
+                {
+                    column_name: 'first_name',
+                    business_purpose: 'Legal first name of the customer',
+                    data_quality_rules: 'Text only, maximum 50 characters, not null',
+                    example_usage: 'Customer communication and personalization',
+                    issues: 'May contain special characters in some cases'
+                },
+                {
+                    column_name: 'email',
+                    business_purpose: 'Primary email address for customer communication',
+                    data_quality_rules: 'Valid email format, unique, not null',
+                    example_usage: 'Marketing campaigns and order notifications',
+                    issues: 'Some emails may be invalid or duplicated'
+                }
+            ],
+            orders: [
+                {
+                    column_name: 'order_id',
+                    business_purpose: 'Unique identifier for each order placed',
+                    data_quality_rules: 'Unique, numeric, not null, positive values',
+                    example_usage: 'Order tracking and customer service',
+                    issues: 'None known'
+                },
+                {
+                    column_name: 'order_date',
+                    business_purpose: 'Date when the order was placed',
+                    data_quality_rules: 'Valid date, not null, not in future',
+                    example_usage: 'Sales trend analysis and reporting',
+                    issues: 'Historical dates may be inaccurate'
+                },
+                {
+                    column_name: 'total_amount',
+                    business_purpose: 'Total monetary value of the order',
+                    data_quality_rules: 'Numeric, not null, positive values',
+                    example_usage: 'Revenue calculation and financial reporting',
+                    issues: 'May need currency conversion for international orders'
+                }
+            ],
+            products: [
+                {
+                    column_name: 'product_id',
+                    business_purpose: 'Unique identifier for each product',
+                    data_quality_rules: 'Unique, numeric, not null',
+                    example_usage: 'Inventory management and sales analysis',
+                    issues: 'Legacy products may have different ID formats'
+                },
+                {
+                    column_name: 'product_name',
+                    business_purpose: 'Descriptive name of the product',
+                    data_quality_rules: 'Text, not null, maximum 100 characters',
+                    example_usage: 'Product catalog and customer facing displays',
+                    issues: 'Naming conventions may vary across regions'
+                },
+                {
+                    column_name: 'category',
+                    business_purpose: 'Product category for classification',
+                    data_quality_rules: 'Predefined values from category list',
+                    example_usage: 'Sales analysis by product category',
+                    issues: 'Some products may be miscategorized'
+                }
+            ],
+            employees: [
+                {
+                    column_name: 'employee_id',
+                    business_purpose: 'Unique identifier for each employee',
+                    data_quality_rules: 'Unique, numeric, not null',
+                    example_usage: 'HR management and payroll processing',
+                    issues: 'Contractors may have different ID formats'
+                },
+                {
+                    column_name: 'department',
+                    business_purpose: 'Organizational department of the employee',
+                    data_quality_rules: 'Predefined department values',
+                    example_usage: 'Organizational reporting and budget allocation',
+                    issues: 'Department names may change over time'
+                },
+                {
+                    column_name: 'hire_date',
+                    business_purpose: 'Date when employee was hired',
+                    data_quality_rules: 'Valid date, not null, not in future',
+                    example_usage: 'Seniority calculation and HR analytics',
+                    issues: 'Historical hire dates may be inaccurate'
+                }
+            ]
+        };
+
+        const existingMappings = [
+            {
+                source_table: 'customers',
+                source_column: 'customer_id',
+                target_table: 'orders',
+                target_column: 'customer_id',
+                mapping_type: 'exact',
+                created_at: '2024-01-15'
+            },
+            {
+                source_table: 'products',
+                source_column: 'product_id',
+                target_table: 'orders',
+                target_column: 'product_id',
+                mapping_type: 'exact',
+                created_at: '2024-01-10'
+            }
+        ];
+
+        let currentMappings = [];
+        let dragSource = null;
+
+        // Initialize the application
+        function initialize() {
+            loadSourceTable('customers');
+            renderExistingMappings();
+            updateStats();
+        }
+
+        // Load source table columns
+        function loadSourceTable(tableName) {
+            const container = document.getElementById('source-columns');
+            const columns = sampleData[tableName] || [];
+            
+            container.innerHTML = '';
+            columns.forEach(column => {
+                const div = document.createElement('div');
+                div.className = 'column-item';
+                div.draggable = true;
+                div.setAttribute('data-type', 'source');
+                div.setAttribute('data-table', tableName);
+                div.setAttribute('data-column', column.column_name);
+                div.ondragstart = (e) => dragStartHandler(e, 'source');
+                
+                div.innerHTML = `
+                    <strong>${column.column_name}</strong>
+                    <div class="column-desc">${column.business_purpose}</div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // Add target table
+        function addTargetTable() {
+            const container = document.getElementById('target-table-container');
+            if (container.children.length >= 3) {
+                alert('Maximum 3 target tables allowed in demo');
+                return;
+            }
+
+            const tableId = `target-${Date.now()}`;
+            const div = document.createElement('div');
+            div.className = 'table-section';
+            div.style.marginTop = '15px';
+            div.innerHTML = `
+                <div class="table-header">
+                    <h4>🎯 Target Table</h4>
+                </div>
+                <select onchange="loadTargetTable('${tableId}', this.value)">
+                    <option value="">Select Table</option>
+                    <option value="customers">Customers</option>
+                    <option value="orders">Orders</option>
+                    <option value="products">Products</option>
+                    <option value="employees">Employees</option>
+                </select>
+                <div class="column-list" id="target-columns-${tableId}"></div>
+            `;
+            container.appendChild(div);
+        }
+
+        // Load target table columns
+        function loadTargetTable(tableId, tableName) {
+            const container = document.getElementById(`target-columns-${tableId}`);
+            const columns = sampleData[tableName] || [];
+            
+            container.innerHTML = '';
+            columns.forEach(column => {
+                const div = document.createElement('div');
+                div.className = 'column-item';
+                div.draggable = true;
+                div.setAttribute('data-type', 'target');
+                div.setAttribute('data-table', tableName);
+                div.setAttribute('data-column', column.column_name);
+                div.ondragstart = (e) => dragStartHandler(e, 'target');
+                
+                div.innerHTML = `
+                    <strong>${column.column_name}</strong>
+                    <div class="column-desc">${column.business_purpose}</div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // Drag start handler
+        function dragStartHandler(e, type) {
+            const table = e.target.getAttribute('data-table');
+            const column = e.target.getAttribute('data-column');
+            dragSource = { type, table, column };
+            e.dataTransfer.setData('text/plain', `${type}:${table}:${column}`);
+        }
+
+        // Drag over handler
+        function dragOverHandler(e) {
+            e.preventDefault();
+            e.currentTarget.classList.add('drag-over');
+        }
+
+        // Drag leave handler
+        function dragLeaveHandler(e) {
+            e.currentTarget.classList.remove('drag-over');
+        }
+
+        // Drop handler
+        function dropHandler(e) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drag-over');
+            
+            const data = e.dataTransfer.getData('text/plain').split(':');
+            const type = data[0];
+            const table = data[1];
+            const column = data[2];
+            
+            if (type === 'source') {
+                // Source column dropped - wait for target
+                currentMappings.push({
+                    sourceTable: table,
+                    sourceColumn: column,
+                    targetTable: null,
+                    targetColumn: null
+                });
+            } else if (type === 'target') {
+                // Target column dropped - find incomplete mapping
+                const incompleteMapping = currentMappings.find(m => !m.targetTable);
+                if (incompleteMapping) {
+                    incompleteMapping.targetTable = table;
+                    incompleteMapping.targetColumn = column;
+                } else {
+                    currentMappings.push({
+                        sourceTable: null,
+                        sourceColumn: null,
+                        targetTable: table,
+                        targetColumn: column
+                    });
+                }
+            }
+            
+            renderCurrentMappings();
+            updateStats();
+        }
+
+        // Render current mappings
+        function renderCurrentMappings() {
+            const container = document.getElementById('mapping-pairs');
+            container.innerHTML = '';
+            
+            if (currentMappings.length === 0) {
+                container.innerHTML = '<p>No mappings yet. Drag columns to create mappings.</p>';
+                return;
+            }
+            
+            currentMappings.forEach((mapping, index) => {
+                const div = document.createElement('div');
+                div.className = 'mapping-pair';
+                
+                let sourceText = mapping.sourceTable ? 
+                    `${mapping.sourceTable}.${mapping.sourceColumn}` : 
+                    '❓ Drag source column';
+                
+                let targetText = mapping.targetTable ? 
+                    `${mapping.targetTable}.${mapping.targetColumn}` : 
+                    '❓ Drag target column';
+                
+                div.innerHTML = `
+                    <div class="mapping-source">${sourceText}</div>
+                    <div class="mapping-arrow">→</div>
+                    <div class="mapping-target">${targetText}</div>
+                    <button class="btn btn-danger" onclick="removeMapping(${index})">Remove</button>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // Remove mapping
+        function removeMapping(index) {
+            currentMappings.splice(index, 1);
+            renderCurrentMappings();
+            updateStats();
+        }
+
+        // Save mappings
+        function saveMappings() {
+            const sessionName = document.getElementById('session-name').value;
+            if (!sessionName) {
+                alert('Please enter a session name');
+                return;
+            }
+
+            // Filter out incomplete mappings
+            const completeMappings = currentMappings.filter(m => 
+                m.sourceTable && m.sourceColumn && m.targetTable && m.targetColumn
+            );
+
+            if (completeMappings.length === 0) {
+                alert('No complete mappings to save');
+                return;
+            }
+
+            // Add to existing mappings (simulate database save)
+            completeMappings.forEach(mapping => {
+                existingMappings.push({
+                    source_table: mapping.sourceTable,
+                    source_column: mapping.sourceColumn,
+                    target_table: mapping.targetTable,
+                    target_column: mapping.targetColumn,
+                    mapping_type: 'exact',
+                    created_at: new Date().toISOString().split('T')[0]
+                });
+            });
+
+            // Clear current mappings
+            currentMappings = [];
+            renderCurrentMappings();
+            renderExistingMappings();
+            updateStats();
+
+            alert(`✅ Saved ${completeMappings.length} mappings successfully!`);
+        }
+
+        // Render existing mappings
+        function renderExistingMappings() {
+            const container = document.getElementById('existing-mappings');
+            container.innerHTML = '';
+            
+            if (existingMappings.length === 0) {
+                container.innerHTML = '<p>No existing mappings found.</p>';
+                return;
+            }
+            
+            existingMappings.forEach(mapping => {
+                const div = document.createElement('div');
+                div.className = 'mapping-item';
+                div.innerHTML = `
+                    <strong>${mapping.source_table}.${mapping.source_column}</strong>
+                    <span class="mapping-arrow"> → </span>
+                    <strong>${mapping.target_table}.${mapping.target_column}</strong>
+                    <div style="margin-top: 5px;">
+                        <small>Type: ${mapping.mapping_type} | Created: ${mapping.created_at}</small>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // Update statistics
+        function updateStats() {
+            const completeMappings = currentMappings.filter(m => 
+                m.sourceTable && m.targetTable
+            ).length;
+            document.getElementById('mapping-count').textContent = completeMappings;
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', initialize);
+        
+        // Add event listener for source table change
+        document.getElementById('source-table-select').addEventListener('change', (e) => {
+            loadSourceTable(e.target.value);
+        });
+    </script>
+</body>
+</html>
