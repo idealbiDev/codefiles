@@ -1,0 +1,18 @@
+# Example 1: Basic usage
+generator = CSVDataDictionaryGenerator()
+results = generator.process_csv_file('your_file.csv')
+generator.generate_report()
+
+# Example 2: Process directory
+generator = CSVDataDictionaryGenerator()
+all_results = generator.process_directory('/path/to/csv/files/')
+
+# Example 3: Get results as DataFrame
+df = generator.get_descriptions()
+print(df.head())
+
+# Example 4: Export to Excel
+generator.export_to_excel('my_data_dictionary.xlsx')
+
+# Example 5: Use the UI (in Jupyter)
+create_ui()

@@ -1,0 +1,543 @@
+import pandas as pd
+import requests
+import hashlib
+import pickle
+import os
+import re
+import logging
+import time
+import json
+import sqlite3
+from typing import Dict, List, Any, Tuple, Optional
+from pathlib import Path
+import ipywidgets as widgets
+from IPython.display import display, HTML, clear_output
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler()]
+)
+logger = logging.getLogger('CSVDataDictionary')
+
+class CSVDataDictionaryGenerator:
+    """Standalone CSV to Data Dictionary Generator for Jupyter Notebooks"""
+    
+    def __init__(self, cache_dir='csv_dictionary_cache', db_path='data_dictionary.db'):
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(exist_ok=True)
+        self.db_path = db_path
+        self.ollama_config = {
+            'url': 'http://localhost:11434/api/generate',
+            'models': ['llama3.2:1b', 'phi3:mini', 'gemma2:2b', 'qwen2:0.5b'],
+            'timeout': 30,
+            'retry_attempts': 2
+        }
+        
+        # Initialize database
+        self._init_database()
+        
+    def _init_database(self):
+        """Initialize SQLite database for storing descriptions"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS column_descriptions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            file_name TEXT NOT NULL,
+            table_name TEXT NOT NULL,
+            column_name TEXT NOT NULL,
+            data_type TEXT,
+            business_purpose TEXT,
+            data_quality_rules TEXT,
+            example_usage TEXT,
+            issues TEXT,
+            sample_values TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(file_name, table_name, column_name)
+        )
+        ''')
+        
+        conn.commit()
+        conn.close()
+        logger.info(f"Database initialized at {self.db_path}")
+    
+    def _get_cache_key(self, prompt: str, model: str) -> str:
+        """Generate cache key"""
+        return hashlib.md5(f"{model}:{prompt}".encode()).hexdigest()
+    
+    def _load_from_cache(self, cache_key: str) -> Optional[str]:
+        """Load from cache"""
+        cache_file = self.cache_dir / f'{cache_key}.pkl'
+        if cache_file.exists():
+            try:
+                with open(cache_file, 'rb') as f:
+                    return pickle.load(f)
+            except Exception as e:
+                logger.warning(f"Cache load failed: {e}")
+        return None
+    
+    def _save_to_cache(self, cache_key: str, response: str):
+        """Save to cache"""
+        cache_file = self.cache_dir / f'{cache_key}.pkl'
+        try:
+            with open(cache_file, 'wb') as f:
+                pickle.dump(response, f)
+        except Exception as e:
+            logger.warning(f"Cache save failed: {e}")
+    
+    def _test_ollama_connection(self) -> bool:
+        """Test if Ollama is available"""
+        try:
+            response = requests.get("http://localhost:11434/api/tags", timeout=10)
+            return response.status_code == 200
+        except:
+            return False
+    
+    def _generate_with_ollama(self, prompt: str, model: str = 'llama3.2:1b') -> str:
+        """Generate description using Ollama"""
+        cache_key = self._get_cache_key(prompt, model)
+        cached = self._load_from_cache(cache_key)
+        if cached:
+            return cached
+        
+        for attempt in range(self.ollama_config['retry_attempts']):
+            try:
+                response = requests.post(
+                    self.ollama_config['url'],
+                    json={
+                        "model": model,
+                        "prompt": prompt,
+                        "options": {"temperature": 0.3, "num_predict": 200},
+                        "stream": False
+                    },
+                    timeout=self.ollama_config['timeout']
+                )
+                
+                if response.status_code == 200:
+                    result = response.json().get('response', '').strip()
+                    if result:
+                        self._save_to_cache(cache_key, result)
+                        return result
+                
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                time.sleep(1)
+        
+        # Fallback if Ollama fails
+        return self._generate_fallback_description(prompt)
+    
+    def _generate_fallback_description(self, prompt: str) -> str:
+        """Generate fallback description when AI is unavailable"""
+        return """
+- **Business Purpose**: Stores important data for analysis and reporting
+- **Data Quality Rules**: Ensure data consistency and validity
+- **Example Usage**: Used in data analysis, reporting, and business intelligence
+- **Known Issues**: Automated description generation unavailable
+"""
+    
+    def _parse_markdown_description(self, description: str) -> dict:
+        """Parse markdown description into structured data"""
+        patterns = {
+            'business_purpose': r'\*\*Business Purpose\*\*:\s*(.*?)(?=\n-|\n\n|$)',
+            'data_quality_rules': r'\*\*Data Quality Rules\*\*:\s*(.*?)(?=\n-|\n\n|$)',
+            'example_usage': r'\*\*Example Usage\*\*:\s*(.*?)(?=\n-|\n\n|$)',
+            'issues': r'\*\*Known Issues/Limitations\*\*:\s*(.*?)(?=\n-|\n\n|$)'
+        }
+        
+        result = {}
+        for key, pattern in patterns.items():
+            match = re.search(pattern, description, re.DOTALL)
+            result[key] = match.group(1).strip() if match else ''
+        
+        return result
+    
+    def _analyze_column(self, series: pd.Series) -> dict:
+        """Analyze a column and return statistics"""
+        analysis = {
+            'data_type': str(series.dtype),
+            'total_count': len(series),
+            'non_null_count': series.count(),
+            'null_count': series.isnull().sum(),
+            'unique_count': series.nunique(),
+            'sample_values': series.dropna().head(5).tolist()
+        }
+        
+        # Numeric analysis
+        if pd.api.types.is_numeric_dtype(series):
+            analysis.update({
+                'min': series.min(),
+                'max': series.max(),
+                'mean': series.mean(),
+                'std': series.std()
+            })
+        
+        # String analysis
+        elif pd.api.types.is_string_dtype(series):
+            analysis.update({
+                'min_length': series.str.len().min(),
+                'max_length': series.str.len().max(),
+                'avg_length': series.str.len().mean()
+            })
+        
+        return analysis
+    
+    def _generate_column_description(self, file_name: str, table_name: str, 
+                                   column_name: str, column_analysis: dict) -> dict:
+        """Generate description for a single column"""
+        prompt = f"""
+        Analyze this database column and provide a comprehensive description:
+
+        File: {file_name}
+        Table: {table_name}
+        Column: {column_name}
+        Data Type: {column_analysis['data_type']}
+        Total Values: {column_analysis['total_count']}
+        Non-Null Values: {column_analysis['non_null_count']}
+        Unique Values: {column_analysis['unique_count']}
+        Sample Values: {column_analysis['sample_values'][:3]}
+
+        Please provide:
+        - **Business Purpose**: What business need does this column serve?
+        - **Data Quality Rules**: What validation rules should apply?
+        - **Example Usage**: How might this column be used in analysis?
+        - **Known Issues/Limitations**: Any potential data quality issues?
+
+        Be concise but informative.
+        """
+        
+        # Check if Ollama is available
+        if self._test_ollama_connection():
+            description = self._generate_with_ollama(prompt)
+        else:
+            description = self._generate_fallback_description(prompt)
+        
+        parsed = self._parse_markdown_description(description)
+        
+        return {
+            'file_name': file_name,
+            'table_name': table_name,
+            'column_name': column_name,
+            'data_type': column_analysis['data_type'],
+            'business_purpose': parsed.get('business_purpose', ''),
+            'data_quality_rules': parsed.get('data_quality_rules', ''),
+            'example_usage': parsed.get('example_usage', ''),
+            'issues': parsed.get('issues', ''),
+            'sample_values': str(column_analysis['sample_values'][:3])
+        }
+    
+    def _save_to_database(self, description: dict):
+        """Save description to database"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+            INSERT OR REPLACE INTO column_descriptions 
+            (file_name, table_name, column_name, data_type, business_purpose, 
+             data_quality_rules, example_usage, issues, sample_values)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (
+                description['file_name'],
+                description['table_name'],
+                description['column_name'],
+                description['data_type'],
+                description['business_purpose'],
+                description['data_quality_rules'],
+                description['example_usage'],
+                description['issues'],
+                description['sample_values']
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+        except Exception as e:
+            logger.error(f"Error saving to database: {e}")
+    
+    def process_csv_file(self, csv_path: str, table_name: str = None, 
+                        sample_size: int = 1000) -> List[dict]:
+        """Process a single CSV file and generate descriptions"""
+        csv_path = Path(csv_path)
+        if not csv_path.exists():
+            raise FileNotFoundError(f"CSV file not found: {csv_path}")
+        
+        file_name = csv_path.name
+        table_name = table_name or csv_path.stem
+        
+        logger.info(f"Processing {file_name} as table '{table_name}'")
+        
+        # Read CSV with error handling
+        try:
+            df = pd.read_csv(csv_path, nrows=sample_size)
+        except Exception as e:
+            logger.error(f"Error reading CSV: {e}")
+            return []
+        
+        logger.info(f"Loaded {len(df)} rows with {len(df.columns)} columns")
+        
+        results = []
+        total_columns = len(df.columns)
+        
+        # Create progress widgets for Jupyter
+        if self._is_jupyter():
+            progress = widgets.IntProgress(value=0, max=total_columns, description='Processing:')
+            display(progress)
+        
+        for i, column_name in enumerate(df.columns):
+            try:
+                # Analyze column
+                analysis = self._analyze_column(df[column_name])
+                
+                # Generate description
+                description = self._generate_column_description(
+                    file_name, table_name, column_name, analysis
+                )
+                
+                # Save to database
+                self._save_to_database(description)
+                results.append(description)
+                
+                logger.info(f"Processed {i+1}/{total_columns}: {column_name}")
+                
+                # Update progress
+                if self._is_jupyter():
+                    progress.value = i + 1
+                
+                # Small delay to avoid overwhelming Ollama
+                time.sleep(0.1)
+                
+            except Exception as e:
+                logger.error(f"Error processing column {column_name}: {e}")
+                continue
+        
+        logger.info(f"Completed processing {file_name}. Generated {len(results)} descriptions.")
+        return results
+    
+    def process_directory(self, directory_path: str, sample_size: int = 1000) -> Dict[str, List[dict]]:
+        """Process all CSV files in a directory"""
+        directory = Path(directory_path)
+        if not directory.exists():
+            raise FileNotFoundError(f"Directory not found: {directory_path}")
+        
+        csv_files = list(directory.glob('*.csv'))
+        logger.info(f"Found {len(csv_files)} CSV files in {directory_path}")
+        
+        all_results = {}
+        
+        for csv_file in csv_files:
+            try:
+                results = self.process_csv_file(str(csv_file), sample_size=sample_size)
+                all_results[csv_file.name] = results
+            except Exception as e:
+                logger.error(f"Error processing {csv_file.name}: {e}")
+                continue
+        
+        return all_results
+    
+    def get_descriptions(self, file_name: str = None) -> pd.DataFrame:
+        """Retrieve descriptions from database"""
+        conn = sqlite3.connect(self.db_path)
+        
+        if file_name:
+            query = "SELECT * FROM column_descriptions WHERE file_name = ? ORDER BY table_name, column_name"
+            df = pd.read_sql_query(query, conn, params=[file_name])
+        else:
+            query = "SELECT * FROM column_descriptions ORDER BY file_name, table_name, column_name"
+            df = pd.read_sql_query(query, conn)
+        
+        conn.close()
+        return df
+    
+    def generate_report(self, file_name: str = None):
+        """Generate a visual report of the data dictionary"""
+        df = self.get_descriptions(file_name)
+        
+        if df.empty:
+            print("No descriptions found in database.")
+            return
+        
+        # Display summary
+        print("=" * 60)
+        print("DATA DICTIONARY REPORT")
+        print("=" * 60)
+        print(f"Total descriptions: {len(df)}")
+        print(f"Files processed: {df['file_name'].nunique()}")
+        print(f"Tables processed: {df['table_name'].nunique()}")
+        print()
+        
+        # Show sample of descriptions
+        print("SAMPLE DESCRIPTIONS:")
+        print("=" * 40)
+        for _, row in df.head(3).iterrows():
+            print(f"Table: {row['table_name']}")
+            print(f"Column: {row['column_name']} ({row['data_type']})")
+            print(f"Purpose: {row['business_purpose'][:100]}...")
+            print("-" * 40)
+        
+        # Data quality visualization
+        if self._is_jupyter():
+            self._create_visualizations(df)
+    
+    def _create_visualizations(self, df: pd.DataFrame):
+        """Create visualizations for the report"""
+        # Data types distribution
+        plt.figure(figsize=(10, 6))
+        df['data_type'].value_counts().plot(kind='bar')
+        plt.title('Data Types Distribution')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.show()
+        
+        # Description completeness
+        completeness = pd.DataFrame({
+            'Business Purpose': df['business_purpose'].str.len() > 0,
+            'Data Quality Rules': df['data_quality_rules'].str.len() > 0,
+            'Example Usage': df['example_usage'].str.len() > 0,
+            'Known Issues': df['issues'].str.len() > 0
+        }).mean()
+        
+        plt.figure(figsize=(10, 6))
+        completeness.plot(kind='bar')
+        plt.title('Description Completeness')
+        plt.ylabel('Completion Rate')
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.show()
+    
+    def _is_jupyter(self) -> bool:
+        """Check if running in Jupyter notebook"""
+        try:
+            from IPython import get_ipython
+            return get_ipython() is not None
+        except:
+            return False
+    
+    def export_to_excel(self, output_path: str = 'data_dictionary.xlsx'):
+        """Export descriptions to Excel file"""
+        df = self.get_descriptions()
+        
+        if df.empty:
+            print("No data to export.")
+            return
+        
+        # Create Excel writer
+        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
+            # Main data
+            df.to_excel(writer, sheet_name='Data Dictionary', index=False)
+            
+            # Summary sheet
+            summary = pd.DataFrame({
+                'Metric': ['Total Files', 'Total Tables', 'Total Columns', 
+                          'Descriptions Generated', 'Completion Rate'],
+                'Value': [
+                    df['file_name'].nunique(),
+                    df['table_name'].nunique(),
+                    len(df),
+                    len(df),
+                    f"{(len(df) / len(df)) * 100:.1f}%"
+                ]
+            })
+            summary.to_excel(writer, sheet_name='Summary', index=False)
+        
+        print(f"Exported to {output_path}")
+
+# Example usage in Jupyter Notebook
+def create_ui():
+    """Create a simple UI for Jupyter notebooks"""
+    # File upload widget
+    uploader = widgets.FileUpload(description='Upload CSV', multiple=True)
+    process_btn = widgets.Button(description='Process Files')
+    output = widgets.Output()
+    
+    def on_process_click(b):
+        with output:
+            clear_output()
+            generator = CSVDataDictionaryGenerator()
+            
+            for filename, content in uploader.value.items():
+                # Save uploaded file
+                with open(filename, 'wb') as f:
+                    f.write(content['content'])
+                
+                # Process file
+                results = generator.process_csv_file(filename)
+                print(f"Processed {filename}: {len(results)} descriptions")
+            
+            # Show report
+            generator.generate_report()
+    
+    process_btn.on_click(on_process_click)
+    
+    display(widgets.VBox([
+        widgets.HTML("<h2>CSV to Data Dictionary Generator</h2>"),
+        uploader,
+        process_btn,
+        output
+    ]))
+
+# Quick test function
+def test_generator():
+    """Test the generator with sample data"""
+    import tempfile
+    import numpy as np
+    
+    # Create sample CSV
+    sample_data = pd.DataFrame({
+        'customer_id': range(100),
+        'customer_name': [f'Customer_{i}' for i in range(100)],
+        'email': [f'customer_{i}@example.com' for i in range(100)],
+        'age': np.random.randint(18, 80, 100),
+        'signup_date': pd.date_range('2020-01-01', periods=100, freq='D'),
+        'is_active': np.random.choice([True, False], 100)
+    })
+    
+    with tempfile.NamedTemporaryFile(suffix='.csv', delete=False) as f:
+        sample_data.to_csv(f.name, index=False)
+        temp_file = f.name
+    
+    try:
+        # Test the generator
+        generator = CSVDataDictionaryGenerator()
+        results = generator.process_csv_file(temp_file, 'customers')
+        
+        print(f"Generated {len(results)} descriptions")
+        
+        # Show results
+        df = generator.get_descriptions()
+        print(df[['table_name', 'column_name', 'data_type']].head())
+        
+        # Generate report
+        generator.generate_report()
+        
+    finally:
+        # Clean up
+        os.unlink(temp_file)
+
+if __name__ == "__main__":
+    # For standalone script usage
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Generate data dictionary from CSV files')
+    parser.add_argument('path', help='CSV file path or directory containing CSV files')
+    parser.add_argument('--sample-size', type=int, default=1000, help='Number of rows to sample')
+    parser.add_argument('--output', default='data_dictionary.xlsx', help='Output Excel file')
+    
+    args = parser.parse_args()
+    
+    generator = CSVDataDictionaryGenerator()
+    
+    if os.path.isfile(args.path):
+        generator.process_csv_file(args.path, sample_size=args.sample_size)
+    elif os.path.isdir(args.path):
+        generator.process_directory(args.path, sample_size=args.sample_size)
+    else:
+        print(f"Path not found: {args.path}")
+        exit(1)
+    
+    generator.export_to_excel(args.output)
+    print(f"Data dictionary exported to {args.output}")
